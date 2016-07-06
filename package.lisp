@@ -41,3 +41,18 @@
     )
   (:shadowing-import-from #:cl-arrows
     #:->))
+
+(defpackage #:hype
+  (:use
+    #:cl
+    #:defstar
+    #:iterate
+    #:cl-arrows
+    #:bones
+    #:hype.quickutils
+    #:hype.utils)
+  (:export
+
+    )
+  (:shadowing-import-from #:cl-arrows
+    #:->))

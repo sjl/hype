@@ -2,7 +2,7 @@
 ;;;; See http://quickutil.org for details.
 
 ;;;; To regenerate:
-;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:WITH-GENSYMS :ONCE-ONLY :COMPOSE :CURRY :RCURRY :N-GRAMS :DEFINE-CONSTANT) :ensure-package T :package "HYPE.QUICKUTILS")
+;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:WITH-GENSYMS :ONCE-ONLY :COMPOSE :CURRY :RCURRY :DEFINE-CONSTANT :MAP-PRODUCT :MAP-TREE :EQUIVALENCE-CLASSES) :ensure-package T :package "HYPE.QUICKUTILS")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package "HYPE.QUICKUTILS")
@@ -16,8 +16,9 @@
   (setf *utilities* (union *utilities* '(:STRING-DESIGNATOR :WITH-GENSYMS
                                          :MAKE-GENSYM-LIST :ONCE-ONLY
                                          :ENSURE-FUNCTION :COMPOSE :CURRY
-                                         :RCURRY :TAKE :N-GRAMS
-                                         :DEFINE-CONSTANT))))
+                                         :RCURRY :DEFINE-CONSTANT :MAPPEND
+                                         :MAP-PRODUCT :MAP-TREE
+                                         :EQUIVALENCE-CLASSES))))
 
   (deftype string-designator ()
     "A string designator type. A string designator is either a string, a symbol,
@@ -184,27 +185,6 @@ with and `arguments` to `function`."
         (multiple-value-call fn (values-list more) (values-list arguments)))))
   
 
-  (defun take (n sequence)
-    "Take the first `n` elements from `sequence`."
-    (subseq sequence 0 n))
-  
-
-  (defun n-grams (n sequence)
-    "Find all `n`-grams of the sequence `sequence`."
-    (assert (and (plusp n)
-                 (<= n (length sequence))))
-    
-    (etypecase sequence
-      ;; Lists
-      (list (loop :repeat (1+ (- (length sequence) n))
-                  :for seq :on sequence
-                  :collect (take n seq)))
-      
-      ;; General sequences
-      (sequence (loop :for i :to (- (length sequence) n)
-                      :collect (subseq sequence i (+ i n))))))
-  
-
   (defun %reevaluate-constant (name value test)
     (if (not (boundp name))
         value
@@ -241,8 +221,75 @@ equal under `test` to result of evaluating `initial-value`."
     `(defconstant ,name (%reevaluate-constant ',name ,initial-value ,test)
        ,@(when documentation `(,documentation))))
   
+
+  (defun mappend (function &rest lists)
+    "Applies `function` to respective element(s) of each `list`, appending all the
+all the result list to a single list. `function` must return a list."
+    (loop for results in (apply #'mapcar function lists)
+          append results))
+  
+
+  (defun map-product (function list &rest more-lists)
+    "Returns a list containing the results of calling `function` with one argument
+from `list`, and one from each of `more-lists` for each combination of arguments.
+In other words, returns the product of `list` and `more-lists` using `function`.
+
+Example:
+
+    (map-product 'list '(1 2) '(3 4) '(5 6))
+     => ((1 3 5) (1 3 6) (1 4 5) (1 4 6)
+         (2 3 5) (2 3 6) (2 4 5) (2 4 6))"
+    (labels ((%map-product (f lists)
+               (let ((more (cdr lists))
+                     (one (car lists)))
+                 (if (not more)
+                     (mapcar f one)
+                     (mappend (lambda (x)
+                                (%map-product (curry f x) more))
+                              one)))))
+      (%map-product (ensure-function function) (cons list more-lists))))
+  
+
+  (defun map-tree (function tree)
+    "Map `function` to each of the leave of `tree`."
+    (check-type tree cons)
+    (labels ((rec (tree)
+               (cond
+                 ((null tree) nil)
+                 ((atom tree) (funcall function tree))
+                 ((consp tree)
+                  (cons (rec (car tree))
+                        (rec (cdr tree)))))))
+      (rec tree)))
+  
+
+  (defun equivalence-classes (equiv seq)
+    "Partition the sequence `seq` into a list of equivalence classes
+defined by the equivalence relation `equiv`."
+    (let ((classes nil))
+      (labels ((find-equivalence-class (x)
+                 (member-if (lambda (class)
+                              (funcall equiv x (car class)))
+                            classes))
+               
+               (add-to-class (x)
+                 (let ((class (find-equivalence-class x)))
+                   (if class
+                       (push x (car class))
+                       (push (list x) classes)))))
+        (declare (dynamic-extent (function find-equivalence-class)
+                                 (function add-to-class))
+                 (inline find-equivalence-class
+                         add-to-class))
+        
+        ;; Partition into equivalence classes.
+        (map nil #'add-to-class seq)
+        
+        ;; Return the classes.
+        classes)))
+  
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export '(with-gensyms with-unique-names once-only compose curry rcurry
-            n-grams define-constant)))
+            define-constant map-product map-tree equivalence-classes)))
 
 ;;;; END OF quickutils.lisp ;;;;

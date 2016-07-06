@@ -8,8 +8,11 @@
                :compose
                :curry
                :rcurry
-               :n-grams
                :define-constant
+               :map-product
+               :map-tree
+               :equivalence-classes
+               ; :n-grams
                ; :switch
                ; :while
                ; :ensure-boolean
