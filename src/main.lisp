@@ -17,12 +17,12 @@
             gdl))
 
 (defun load-rules (gdl)
-  (mapcar (lambda (rule)
-            (if (and (consp rule)
-                     (eq (car rule) '<=))
-              (apply #'invoke-rule (cdr rule))
-              (invoke-fact rule)))
-          gdl))
+  (mapc (lambda (rule)
+          (if (and (consp rule)
+                   (eq (car rule) '<=))
+            (apply #'invoke-rule (cdr rule))
+            (invoke-fact rule)))
+        gdl))
 
 (defun load-gdl (filename)
   (push-logic-frame-with
@@ -33,7 +33,10 @@
 (defun load-gdl-preamble ()
   (push-logic-frame-with
     (rule (not ?x) (call ?x) ! fail)
-    (fact (not ?x))))
+    (fact (not ?x))
+
+    (rule (distinct ?x ?x) ! fail)
+    (fact (distinct ?x ?y))))
 
 (defun initialize-database (filename)
   (setf bones.wam::*database* (make-database))
@@ -43,6 +46,45 @@
 
 
 ;;;; GGP
+(defun dedupe-state (state)
+  (iterate (for fact :in state)
+           (for prev :previous fact)
+           (when (not (equal fact prev))
+             (collect fact))))
+
+(defun fact-slow< (a b)
+  ;; numbers < symbols < conses
+  (etypecase a
+    (number (etypecase b
+              (number (< a b))
+              (t t)))
+    (symbol (etypecase b
+              (number nil)
+              (cons t)
+              (symbol (string< (symbol-name a) (symbol-name b)))))
+    (cons (etypecase b
+            (cons (cond
+                    ((fact-slow< (car a) (car b)) t)
+                    ((fact-slow< (car b) (car a)) nil)
+                    (t (fact-slow< (cdr a) (cdr b)))))
+            (t nil)))))
+
+(defun fact< (a b)
+  (let ((ha (sxhash a))
+        (hb (sxhash b)))
+    (if (= ha hb)
+      (if (eql a b)
+        nil
+        (fact-slow< a b))
+      (< ha hb))))
+
+(defun sort-state (state)
+  (sort state #'fact-slow<))
+
+(defun normalize-state (state)
+  (sort-state (dedupe-state state)))
+
+
 (defun initial-state ()
   (query-map (rcurry #'getf '?what)
              (init ?what)))
@@ -57,13 +99,20 @@
 (defun move-role= (move1 move2)
   (eq (car move1) (car move2)))
 
+(defun legal-moves-for (role)
+  (invoke-query-map (lambda (move)
+                      (cons (getf move '?role)
+                            (getf move '?action)))
+                    `(legal ,role ?action)))
+
 (defun legal-moves ()
   (let* ((individual-moves
-           (remove-duplicates (query-map (lambda (move)
-                                           (cons (getf move '?role)
-                                                 (getf move '?action)))
-                                         (legal ?role ?action))
-                              :test #'move=))
+           (remove-duplicates
+             (query-map (lambda (move)
+                          (cons (getf move '?role)
+                                (getf move '?action)))
+                        (legal ?role ?action))
+             :test #'move=))
          (player-moves
            (equivalence-classes #'move-role= individual-moves))
          (joint-moves
@@ -82,21 +131,20 @@
   (invoke-query-all `(goal ?role ?goal)))
 
 (defun next-state ()
-  (query-map (lambda (r) (getf r '?what))
-             (next ?what)))
+  (normalize-state
+    (query-map (lambda (r) (getf r '?what))
+               (next ?what))))
 
 
 (defun apply-state (state)
-  (push-logic-frame)
-  (loop :for fact :in state
-        :do (invoke-fact `(true ,fact)))
-  (finalize-logic-frame))
+  (push-logic-frame-with
+    (loop :for fact :in state
+          :do (invoke-fact `(true ,fact)))))
 
 (defun apply-moves (moves)
-  (push-logic-frame)
-  (loop :for (role . action) :in moves
-        :do (invoke-fact `(does ,role ,action)))
-  (finalize-logic-frame))
+  (push-logic-frame-with
+    (loop :for (role . action) :in moves
+          :do (invoke-fact `(does ,role ,action)))))
 
 
 (defun clear-state ()
