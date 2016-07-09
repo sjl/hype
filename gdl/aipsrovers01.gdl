@@ -13,16 +13,20 @@
     (true (thing communicated_image_data_objective1_high_res))
     (true (thing communicated_rock_data_waypoint3))
     (true (thing communicated_soil_data_waypoint2)))
+
 (<= terminal
     (true (thing communicated_image_data_objective1_high_res))
     (true (thing communicated_rock_data_waypoint3))
     (true (thing communicated_soil_data_waypoint2)))
+
 (<= (goal solver 100)
     (true (thing communicated_image_data_objective1_high_res))
     (true (thing communicated_rock_data_waypoint3))
     (true (thing communicated_soil_data_waypoint2)))
+
 (<= (goal solver 0)
     (not solved))
+
 (<= (legal solver navigate_rover0_waypoint0_waypoint3)
     (true (thing at_rover0_waypoint0))
     (true (thing available_rover0)))

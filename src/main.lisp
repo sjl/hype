@@ -82,7 +82,7 @@
   (sort state #'fact-slow<))
 
 (defun normalize-state (state)
-  (sort-state (dedupe-state state)))
+  (dedupe-state (sort-state state)))
 
 
 (defun initial-state ()
@@ -154,9 +154,39 @@
   (pop-logic-frame))
 
 
+;;;; Cache
+(defvar *cache* nil)
+(defvar *cache-hits* nil)
+(defvar *cache-misses* nil)
+
+(defun get-cached-result (state remaining-depth)
+  (multiple-value-bind (result found) (gethash state *cache*)
+    (if (not found)
+      (values nil nil)
+      (destructuring-bind (goal . subtree-depth) result
+        (cond
+          ((eq t subtree-depth) (values goal t)) ; if the cached result is from hitting a terminal
+          ((<= remaining-depth subtree-depth) (values goal t))
+          (t (values nil nil)))))))
+
+(defmacro get-cached-or ((state remaining-depth) &body body)
+  (once-only (state remaining-depth)
+    (with-gensyms (found result)
+      `(multiple-value-bind (,result ,found)
+        (get-cached-result ,state ,remaining-depth)
+        (if ,found
+          (progn
+            (incf *cache-hits*)
+            ,result)
+          (progn
+            (incf *cache-misses*)
+            (setf (gethash ,state *cache*) (progn ,@body))))))))
+
+
 ;;;; Search
 (defvar *count* 0)
 (defvar *role* nil)
+
 
 (defun children ()
   (iterate
@@ -166,38 +196,81 @@
                     (clear-moves)))))
 
 
-(defun depth-first-search (state path limit)
-  (when (zerop (mod (incf *count*) 1000))
-    (format t "~D...~%" *count*))
-  (when (plusp limit)
-    (apply-state state)
-    (if (terminalp)
-      (prog1
-          (if (eq 'num-100 (goal-value *role*))
-            (list state (reverse path))
-            nil)
-        (clear-state))
-      (iterate
-        (with next = (children))
-        (initially (clear-state))
-        (for (move . next-state) :in next)
-        (thereis (depth-first-search next-state
-                                     (cons move path)
-                                     (1- limit)))))))
+(defun dfs (state path remaining-depth)
+  (labels ((handle-terminal ()
+             (cons (if (eq 'num-100 (goal-value *role*))
+                     (list state (reverse path))
+                     nil)
+                   t)))
+    (when (zerop (mod (incf *count*) 10000))
+      (format t "~D...~%" *count*))
+    (get-cached-or (state remaining-depth)
+      (if (zerop remaining-depth)
+        (cons nil 0)
+        (progn
+          (apply-state state)
+          (if (terminalp)
+            (prog1
+                (handle-terminal)
+              (clear-state))
+            (iterate
+              (with next = (children))
+              (with finished = t)
+              (initially (clear-state))
+              (for (move . next-state) :in next)
+              (for (result . subtree-depth) = (dfs next-state
+                                                   (cons move path)
+                                                   (1- remaining-depth)))
+              (unless (eq subtree-depth t)
+                (setf finished nil))
+              (when result
+                (leave (cons result nil)))
+              (finally (return (cons nil (if finished
+                                           t
+                                           remaining-depth)))))))))))
+
+(defun depth-first-search (limit)
+  (dfs (initial-state) nil limit))
 
 
 (defun iterative-deepening-search (absolute-limit)
   (iterate
-    (for limit :from 4 :to absolute-limit)
+    (for limit :from 1 :to absolute-limit)
     (format t "~%Searching depth ~D~%" limit)
-    (thereis (depth-first-search (initial-state) nil limit))))
+    (thereis (car (depth-first-search limit)))
+    (format t "Done.~%")
+    (format t "Cache: (size ~D) (hits ~D) (misses ~D)~%"
+            (hash-table-count *cache*)
+            *cache-hits* *cache-misses*)))
+
 
 (defun run-game (filename)
   (initialize-database filename)
   (let ((*count* 0)
-        (*role* (car (roles))))
-    (iterative-deepening-search 10)))
+        (*role* (car (roles)))
+        (*cache* (make-hash-table :test 'equal))
+        (*cache-hits* 0)
+        (*cache-misses* 0))
+    (iterative-deepening-search 11)))
 
 
-(run-game "gdl/buttons.gdl")
+; (declaim (optimize (speed 3) (debug 0) (safety 0)))
+(declaim (optimize (speed 0) (debug 3) (safety 3)))
+; (run-game "gdl/buttons.gdl")
+
+
+; (require :sb-sprof)
+; (defun profile ()
+;   (sb-sprof:with-profiling (:max-samples 4000
+;                             :reset t
+;                             :sample-interval 0.0001)
+;     (time (run-game "gdl/aipsrovers01.gdl"))
+;     ; (run-game "gdl/buttons.gdl")
+;     ))
+; (sb-sprof:profile-call-counts "HYPE")
+; (profile)
+; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
+; (sb-sprof:report :type :flat :min-percent 3)
+; (run-game "gdl/hanoi.gdl")
+; (run-game "gdl/hanoi.gdl")
 ; (run-game "gdl/aipsrovers01.gdl")
