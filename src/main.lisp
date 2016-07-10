@@ -327,9 +327,9 @@
 
 
 ;;;; Scratch
-(sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
-(sb-sprof:report :type :flat :min-percent 1)
-(profile "gdl/hanoi.gdl" 33)
+; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
+; (sb-sprof:report :type :flat :min-percent 1)
+; (profile "gdl/hanoi.gdl" 33)
 
 
 

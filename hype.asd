@@ -11,7 +11,9 @@
                #:iterate
                #:cl-arrows
                #:cl-ggp
-               #:bones)
+               #:bones
+               #:sb-sprof
+               )
 
   :serial t
   :components
