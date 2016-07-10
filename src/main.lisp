@@ -1,5 +1,59 @@
 (in-package #:hype)
 
+(declaim (optimize (speed 3) (debug 0) (safety 0)))
+; (declaim (optimize (speed 0) (debug 3) (safety 3)))
+
+
+;;;; Unique Consing (see PAIP)
+(defparameter *cons-table* (make-hash-table :test 'eql))
+(defparameter *atom-table* (make-hash-table :test 'eql))
+
+(defmacro with-fresh-cons-pool (&body body)
+  `(let ((*cons-table* (make-hash-table :test 'eql))
+         (*atom-table* (make-hash-table :test 'equal)))
+    ,@body))
+
+(defmacro gethash-defaulted (key hash-table &body body)
+  (once-only (key hash-table)
+    (with-gensyms (result found)
+      `(multiple-value-bind (,result ,found) (gethash ,key ,hash-table)
+         (if ,found
+           ,result
+           (setf (gethash ,key ,hash-table)
+                 (progn ,@body)))))))
+
+(defmacro short-circuiting-get (v uv table init)
+  (once-only (v table)
+    (with-gensyms (result found)
+      `(multiple-value-bind (,result ,found)
+        (gethash ,v ,table)
+        (if ,found
+          (progn (setf ,uv ,v)
+                 ,result)
+          (progn (setf ,uv (unique ,v))
+                 (gethash-defaulted ,uv ,table ,init)))))))
+
+(defun unique (form)
+  (etypecase form
+    (symbol form)
+    (number form)
+    (atom (gethash-defaulted form *atom-table* form))
+    (cons (unique-cons (car form) (cdr form)))))
+
+(defun unique-cons (a b &aux ua ub)
+  (-<> *cons-table*
+    (short-circuiting-get a ua <> (make-hash-table :test 'eql))
+    (short-circuiting-get b ub <> (cons ua ub))))
+
+(defun ulist (&rest args)
+  (unique args))
+
+(defun uappend (a b)
+  (if (null a)
+    (unique b)
+    (unique-cons (car a) (uappend (cdr a) b))))
+
+
 ;;;; GDL
 (defun read-gdl (filename)
   (with-open-file (stream filename)
@@ -49,15 +103,12 @@
 (defun dedupe-state (state)
   (iterate (for fact :in state)
            (for prev :previous fact)
-           (when (not (equal fact prev))
+           (when (not (eql fact prev))
              (collect fact))))
 
 (defun fact-slow< (a b)
   ;; numbers < symbols < conses
   (etypecase a
-    (number (etypecase b
-              (number (< a b))
-              (t t)))
     (symbol (etypecase b
               (number nil)
               (cons t)
@@ -67,27 +118,30 @@
                     ((fact-slow< (car a) (car b)) t)
                     ((fact-slow< (car b) (car a)) nil)
                     (t (fact-slow< (cdr a) (cdr b)))))
-            (t nil)))))
+            (t nil)))
+    (number (etypecase b
+              (number (< a b))
+              (t t)))))
 
 (defun fact< (a b)
-  (let ((ha (sxhash a))
-        (hb (sxhash b)))
-    (if (= ha hb)
-      (if (eql a b)
-        nil
-        (fact-slow< a b))
-      (< ha hb))))
+  (if (eql a b)
+    nil
+    (let ((ha (sxhash a))
+          (hb (sxhash b)))
+      (if (= ha hb)
+        (fact-slow< a b)
+        (< ha hb)))))
 
 (defun sort-state (state)
-  (sort state #'fact-slow<))
+  (sort state #'fact<))
 
 (defun normalize-state (state)
-  (dedupe-state (sort-state state)))
+  (unique (dedupe-state (sort-state state))))
 
 
 (defun initial-state ()
-  (query-map (rcurry #'getf '?what)
-             (init ?what)))
+  (unique (query-map (rcurry #'getf '?what)
+                     (init ?what))))
 
 (defun terminalp ()
   (prove terminal))
@@ -132,7 +186,7 @@
 
 (defun next-state ()
   (normalize-state
-    (query-map (lambda (r) (getf r '?what))
+    (query-map (lambda (r) (unique (getf r '?what)))
                (next ?what))))
 
 
@@ -205,29 +259,33 @@
     (when (zerop (mod (incf *count*) 10000))
       (format t "~D...~%" *count*))
     (get-cached-or (state remaining-depth)
-      (if (zerop remaining-depth)
-        (cons nil 0)
-        (progn
-          (apply-state state)
-          (if (terminalp)
-            (prog1
-                (handle-terminal)
-              (clear-state))
-            (iterate
-              (with next = (children))
-              (with finished = t)
-              (initially (clear-state))
-              (for (move . next-state) :in next)
-              (for (result . subtree-depth) = (dfs next-state
-                                                   (cons move path)
-                                                   (1- remaining-depth)))
-              (unless (eq subtree-depth t)
-                (setf finished nil))
-              (when result
-                (leave (cons result nil)))
-              (finally (return (cons nil (if finished
-                                           t
-                                           remaining-depth)))))))))))
+      (apply-state state)
+      (cond
+        ((terminalp)
+         (prog1
+             (handle-terminal)
+           (clear-state)))
+
+        ((zerop remaining-depth)
+         (clear-state)
+         (cons nil 0))
+
+        (t
+         (iterate
+           (with next = (children))
+           (with finished = t)
+           (initially (clear-state))
+           (for (move . next-state) :in next)
+           (for (result . subtree-depth) = (dfs next-state
+                                                (cons move path)
+                                                (1- remaining-depth)))
+           (unless (eq subtree-depth t)
+             (setf finished nil))
+           (when result
+             (leave (cons result nil)))
+           (finally (return (cons nil (if finished
+                                        t
+                                        remaining-depth))))))))))
 
 (defun depth-first-search (limit)
   (dfs (initial-state) nil limit))
@@ -244,33 +302,34 @@
             *cache-hits* *cache-misses*)))
 
 
-(defun run-game (filename)
+(defun run-game (filename limit)
   (initialize-database filename)
   (let ((*count* 0)
         (*role* (car (roles)))
-        (*cache* (make-hash-table :test 'equal))
+        (*cache* (make-hash-table :test 'eq :size 10000))
         (*cache-hits* 0)
         (*cache-misses* 0))
-    (iterative-deepening-search 11)))
+    (with-fresh-cons-pool
+      (prog1
+          (iterative-deepening-search limit)
+        (format t "Final cons pool size: ~D~%" (hash-table-count *cons-table*))
+        (format t "Final atom pool size: ~D~%" (hash-table-count *atom-table*))))))
 
 
-; (declaim (optimize (speed 3) (debug 0) (safety 0)))
-(declaim (optimize (speed 0) (debug 3) (safety 3)))
-; (run-game "gdl/buttons.gdl")
+;;;; Profiling
+(defun profile (game limit)
+  (require :sb-sprof)
+  (sb-sprof::profile-call-counts "HYPE")
+  (sb-sprof::with-profiling (:max-samples 4000
+                            :reset t
+                            :sample-interval 0.001)
+    (time (run-game game limit))))
 
 
-; (require :sb-sprof)
-; (defun profile ()
-;   (sb-sprof:with-profiling (:max-samples 4000
-;                             :reset t
-;                             :sample-interval 0.0001)
-;     (time (run-game "gdl/aipsrovers01.gdl"))
-;     ; (run-game "gdl/buttons.gdl")
-;     ))
-; (sb-sprof:profile-call-counts "HYPE")
-; (profile)
-; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
-; (sb-sprof:report :type :flat :min-percent 3)
-; (run-game "gdl/hanoi.gdl")
-; (run-game "gdl/hanoi.gdl")
-; (run-game "gdl/aipsrovers01.gdl")
+;;;; Scratch
+(sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
+(sb-sprof:report :type :flat :min-percent 1)
+(profile "gdl/hanoi.gdl" 33)
+
+
+
