@@ -12,7 +12,7 @@
                #:cl-arrows
                #:cl-ggp
                #:bones
-               #:sb-sprof
+               #+sbcl #:sb-sprof
                )
 
   :serial t

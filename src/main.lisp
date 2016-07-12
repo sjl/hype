@@ -1,6 +1,8 @@
 (in-package #:hype)
 
-(declaim (optimize (speed 3) (debug 0) (safety 0)))
+(declaim (optimize (speed 3) (debug 0) (safety 0) (compilation-speed 0) (space 0)))
+(asdf:load-system 'bones :force t)
+
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
 
 
@@ -317,19 +319,39 @@
 
 
 ;;;; Profiling
+#+sbcl
 (defun profile (game limit)
+  (declare (optimize (speed 1) (debug 1) (safety 1)))
+  (sb-ext:gc :full t)
   (require :sb-sprof)
   (sb-sprof::profile-call-counts "HYPE")
-  (sb-sprof::with-profiling (:max-samples 4000
-                            :reset t
-                            :sample-interval 0.001)
-    (time (run-game game limit))))
+  (sb-sprof::profile-call-counts "BONES.WAM")
+  (sb-sprof::profile-call-counts "BONES.CIRCLE")
+  (sb-sprof::with-profiling (:max-samples 50000
+                             :reset t
+                             ; :mode :alloc
+                             :mode :cpu
+                             :sample-interval 0.008
+                             :alloc-interval 4)
+    (time (run-game game limit)))
+  (with-open-file (*standard-output* "hype.prof"
+                                     :direction :output
+                                     :if-exists :supersede)
+    (sb-sprof:report :type :graph
+                     :sort-by :cumulative-samples
+                     :sort-order :ascending)
+    (sb-sprof:report :type :flat
+                     :min-percent 0.5)))
 
 
 ;;;; Scratch
-; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
-; (sb-sprof:report :type :flat :min-percent 1)
 ; (profile "gdl/hanoi.gdl" 33)
+; (profile "gdl/aipsrovers01.gdl" 11)
+; (sb-sprof:report :type :flat :min-percent 0.5)
+; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
+; (time (run-game "gdl/hanoi.gdl" 33))
+; (time (run-game "gdl/aipsrovers01.gdl" 11))
+
 
 
 
