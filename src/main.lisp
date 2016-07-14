@@ -1,6 +1,8 @@
 (in-package #:hype)
 
-(declaim (optimize (speed 3) (debug 0) (safety 0) (compilation-speed 0) (space 0)))
+(declaim (optimize (speed 3) (debug 0) (safety 0)))
+; (declaim (optimize (speed 0) (debug 3) (safety 3)))
+
 (asdf:load-system 'bones :force t)
 
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
@@ -63,6 +65,66 @@
   (if (null a)
     (unique b)
     (unique-cons (car a) (uappend (cdr a) b))))
+
+
+;;;; State Trie
+;;; Based on the PAIP tries.
+
+(defconstant +trie-deleted+ 'trie-deleted)
+(defconstant +trie-cons+ 'trie-cons)
+
+
+(defstruct trie
+  (arcs nil :type list)
+  (value nil :type t))
+
+
+(defun* follow-arc ((trie trie) arc-key extend?)
+  ;; returns (node did-extend)
+  (let ((arc (assoc arc-key (trie-arcs trie))))
+    (cond
+      (arc (values (cdr arc) nil))
+      (extend? (let ((new-trie (make-trie)))
+                 (push (cons arc-key new-trie)
+                       (trie-arcs trie))
+                 (values new-trie t)))
+      (t (values nil nil)))))
+
+(defun* find-leaf (trie key &optional extend?)
+  ;; returns (node did-extend)
+  (cond
+    ((null trie) (values nil nil))
+    ((atom key) (follow-arc trie key extend?))
+    (t (-> trie
+         (follow-arc +trie-cons+ extend?)
+         (find-leaf (car key) extend?)
+         (find-leaf (cdr key) extend?)))))
+
+
+(defun* get-trie (key (trie trie) &optional default)
+  (let* ((leaf (find-leaf trie key))
+         (result (when leaf (trie-value leaf))))
+    (if (or (null leaf) (eq result +trie-deleted+))
+      (values default nil)
+      (values result t))))
+
+(defun* (setf get-trie) (new-value key trie)
+  (setf (trie-value (find-leaf trie key t)) new-value))
+
+(defun* rem-trie (key trie)
+  (setf (get-trie key trie) +trie-deleted+))
+
+
+(defun trie-to-cons (trie)
+  (recursively ((trie trie))
+    (list (list :value (trie-value trie))
+          (list* :arcs (loop :for (key . child) :in (trie-arcs trie)
+                            :collect (list key '-> (recur child)))))))
+
+(defmethod print-object ((trie trie) stream)
+  (print-unreadable-object (trie stream)
+    (let ((*print-pretty* t))
+      (prin1 (trie-to-cons trie) stream))))
 
 
 ;;;; GDL
@@ -151,8 +213,9 @@
 
 
 (defun initial-state ()
-  (unique (query-map (rcurry #'getf '?what)
-                     (init ?what))))
+  (normalize-state
+    (query-map (rcurry #'getf '?what)
+               (init ?what))))
 
 (defun terminalp ()
   (prove terminal))
@@ -224,8 +287,10 @@
 (defvar *cache-hits* nil)
 (defvar *cache-misses* nil)
 
-(defun get-cached-result (state remaining-depth)
-  (multiple-value-bind (result found) (gethash state *cache*)
+(declaim (inline get-cached-result))
+
+(defun get-cached-result (getter-function state remaining-depth)
+  (multiple-value-bind (result found) (funcall getter-function state *cache*)
     (if (not found)
       (values nil nil)
       (destructuring-bind (goal . subtree-depth) result
@@ -234,18 +299,18 @@
           ((<= remaining-depth subtree-depth) (values goal t))
           (t (values nil nil)))))))
 
-(defmacro get-cached-or ((state remaining-depth) &body body)
+(defmacro get-cached-or ((getter state remaining-depth) &body body)
   (once-only (state remaining-depth)
     (with-gensyms (found result)
       `(multiple-value-bind (,result ,found)
-        (get-cached-result ,state ,remaining-depth)
+        (get-cached-result (function ,getter) ,state ,remaining-depth)
         (if ,found
           (progn
             (incf *cache-hits*)
             ,result)
           (progn
             (incf *cache-misses*)
-            (setf (gethash ,state *cache*) (progn ,@body))))))))
+            (setf (,getter ,state *cache*) (progn ,@body))))))))
 
 
 ;;;; Search
@@ -269,7 +334,7 @@
                    t)))
     (when (zerop (mod (incf *count*) 10000))
       (format t "~D...~%" *count*))
-    (get-cached-or (state remaining-depth)
+    (get-cached-or (get-trie state remaining-depth)
       (apply-state state)
       (cond
         ((terminalp)
@@ -309,7 +374,8 @@
     (thereis (car (depth-first-search limit)))
     (format t "Done.~%")
     (format t "Cache: (size ~D) (hits ~D) (misses ~D)~%"
-            (hash-table-count *cache*)
+            0
+            ; (hash-table-count *cache*)
             *cache-hits* *cache-misses*)))
 
 
@@ -317,14 +383,15 @@
   (initialize-database filename)
   (let ((*count* 0)
         (*role* (car (roles)))
-        (*cache* (make-hash-table :test 'eq :size 10000))
+        ; (*cache* (make-hash-table :test 'eq :size 10000))
+        (*cache* (make-trie))
         (*cache-hits* 0)
         (*cache-misses* 0))
     (with-fresh-cons-pool
       (prog1
           (iterative-deepening-search limit)
-        (format t "Final cons pool size: ~D~%" (hash-table-count *cons-table*))
-        (format t "Final atom pool size: ~D~%" (hash-table-count *atom-table*))))))
+        ; (print *cache*)
+        ))))
 
 
 ;;;; Profiling
@@ -355,12 +422,8 @@
 
 ;;;; Scratch
 ; (profile "gdl/hanoi.gdl" 33)
-; (profile "gdl/aipsrovers01.gdl" 11)
+(profile "gdl/aipsrovers01.gdl" 11)
 ; (sb-sprof:report :type :flat :min-percent 0.5)
 ; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
 ; (time (run-game "gdl/hanoi.gdl" 33))
 ; (time (run-game "gdl/aipsrovers01.gdl" 11))
-
-
-
-
