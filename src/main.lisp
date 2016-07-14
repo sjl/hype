@@ -6,9 +6,12 @@
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
 
 
-;;;; Unique Consing (see PAIP)
+;;;; Unique Consing
+;;; Originally from PAIP, but updated with bugfix and macros.
+
 (defparameter *cons-table* (make-hash-table :test 'eql))
 (defparameter *atom-table* (make-hash-table :test 'eql))
+
 
 (defmacro with-fresh-cons-pool (&body body)
   `(let ((*cons-table* (make-hash-table :test 'eql))
@@ -16,6 +19,12 @@
     ,@body))
 
 (defmacro gethash-defaulted (key hash-table &body body)
+  "Get `key` from `hash-table`.
+
+  If `key` is not present, `body` will be evaluated, inserted into the table at
+  `key`, and returned.
+
+  "
   (once-only (key hash-table)
     (with-gensyms (result found)
       `(multiple-value-bind (,result ,found) (gethash ,key ,hash-table)
@@ -27,13 +36,18 @@
 (defmacro short-circuiting-get (v uv table init)
   (once-only (v table)
     (with-gensyms (result found)
-      `(multiple-value-bind (,result ,found)
-        (gethash ,v ,table)
+      `(multiple-value-bind (,result ,found) (gethash ,v ,table)
         (if ,found
           (progn (setf ,uv ,v)
                  ,result)
           (progn (setf ,uv (unique ,v))
                  (gethash-defaulted ,uv ,table ,init)))))))
+
+
+(defun unique-cons (a b &aux ua ub)
+  (-<> *cons-table*
+    (short-circuiting-get a ua <> (make-hash-table :test 'eql))
+    (short-circuiting-get b ub <> (cons ua ub))))
 
 (defun unique (form)
   (etypecase form
@@ -41,11 +55,6 @@
     (number form)
     (atom (gethash-defaulted form *atom-table* form))
     (cons (unique-cons (car form) (cdr form)))))
-
-(defun unique-cons (a b &aux ua ub)
-  (-<> *cons-table*
-    (short-circuiting-get a ua <> (make-hash-table :test 'eql))
-    (short-circuiting-get b ub <> (cons ua ub))))
 
 (defun ulist (&rest args)
   (unique args))
@@ -111,6 +120,9 @@
 (defun fact-slow< (a b)
   ;; numbers < symbols < conses
   (etypecase a
+    (number (etypecase b
+              (number (< a b))
+              (t t)))
     (symbol (etypecase b
               (number nil)
               (cons t)
@@ -120,10 +132,7 @@
                     ((fact-slow< (car a) (car b)) t)
                     ((fact-slow< (car b) (car a)) nil)
                     (t (fact-slow< (cdr a) (cdr b)))))
-            (t nil)))
-    (number (etypecase b
-              (number (< a b))
-              (t t)))))
+            (t nil)))))
 
 (defun fact< (a b)
   (if (eql a b)
