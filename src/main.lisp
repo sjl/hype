@@ -3,9 +3,13 @@
 (declaim (optimize (speed 3) (debug 0) (safety 0)))
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
 
-(asdf:load-system 'bones :force t)
 
-; (declaim (optimize (speed 0) (debug 3) (safety 3)))
+; (asdf:load-system 'bones :force t)
+
+(let ((*standard-output* (make-broadcast-stream))
+      (*error-output* (make-broadcast-stream))
+      )
+  (asdf:load-system 'bones :force t))
 
 
 ;;;; Unique Consing
@@ -136,13 +140,6 @@
       :while (not (eq form done))
       :collect form)))
 
-(defun munge-numbers (gdl)
-  (map-tree (lambda (f)
-              (if (numberp f)
-                (intern (format nil "NUM-~D" f))
-                f))
-            gdl))
-
 (defun load-rules (gdl)
   (mapc (lambda (rule)
           (if (and (consp rule)
@@ -153,9 +150,7 @@
 
 (defun load-gdl (filename)
   (push-logic-frame-with
-    (-> (read-gdl filename)
-      munge-numbers
-      load-rules)))
+    (load-rules (read-gdl filename))))
 
 (defun load-gdl-preamble ()
   (push-logic-frame-with
@@ -214,8 +209,9 @@
 
 (defun initial-state ()
   (normalize-state
-    (query-map (rcurry #'getf '?what)
+    (query-map (lambda (r) (getf r '?what))
                (init ?what))))
+
 
 (defun terminalp ()
   (prove terminal))
@@ -328,13 +324,13 @@
 
 (defun dfs (state path remaining-depth)
   (labels ((handle-terminal ()
-             (cons (if (eq 'num-100 (goal-value *role*))
+             (cons (if (= 100 (goal-value *role*))
                      (list state (reverse path))
                      nil)
                    t)))
     (when (zerop (mod (incf *count*) 10000))
       (format t "~D...~%" *count*))
-    (get-cached-or (get-trie state remaining-depth)
+    (get-cached-or (gethash state remaining-depth)
       (apply-state state)
       (cond
         ((terminalp)
@@ -372,10 +368,9 @@
     (for limit :from 1 :to absolute-limit)
     (format t "~%Searching depth ~D~%" limit)
     (thereis (car (depth-first-search limit)))
-    (format t "Done.~%")
     (format t "Cache: (size ~D) (hits ~D) (misses ~D)~%"
-            0
-            ; (hash-table-count *cache*)
+            ; 0
+            (hash-table-count *cache*)
             *cache-hits* *cache-misses*)))
 
 
@@ -383,8 +378,8 @@
   (initialize-database filename)
   (let ((*count* 0)
         (*role* (car (roles)))
-        ; (*cache* (make-hash-table :test 'eq :size 10000))
-        (*cache* (make-trie))
+        (*cache* (make-hash-table :test 'eq :size 10000))
+        ; (*cache* (make-trie))
         (*cache-hits* 0)
         (*cache-misses* 0))
     (with-fresh-cons-pool
@@ -397,7 +392,7 @@
 ;;;; Profiling
 #+sbcl
 (defun profile (game limit)
-  (declare (optimize (speed 1) (debug 1) (safety 1)))
+  ; (declare (optimize (speed 1) (debug 1) (safety 1)))
   (sb-ext:gc :full t)
   (require :sb-sprof)
   (sb-sprof::profile-call-counts "HYPE")
@@ -407,8 +402,8 @@
                              :reset t
                              ; :mode :alloc
                              :mode :cpu
-                             :sample-interval 0.008
-                             :alloc-interval 4)
+                             :sample-interval 0.006
+                             :alloc-interval 1)
     (time (run-game game limit)))
   (with-open-file (*standard-output* "hype.prof"
                                      :direction :output
