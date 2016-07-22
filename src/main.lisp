@@ -4,7 +4,7 @@
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
 
 
-; (asdf:load-system 'bones :force t)
+(asdf:load-system 'bones :force t)
 
 (let ((*standard-output* (make-broadcast-stream))
       (*error-output* (make-broadcast-stream))
@@ -133,17 +133,18 @@
 
 ;;;; GDL
 (defun read-gdl (filename)
-  (with-open-file (stream filename)
-    (loop
-      :with done = (gensym)
-      :for form = (read stream nil done)
-      :while (not (eq form done))
-      :collect form)))
+  (let ((*package* (find-package :ggp-rules)))
+    (with-open-file (stream filename)
+      (loop
+        :with done = (gensym)
+        :for form = (read stream nil done)
+        :while (not (eq form done))
+        :collect form))))
 
 (defun load-rules (gdl)
   (mapc (lambda (rule)
           (if (and (consp rule)
-                   (eq (car rule) '<=))
+                   (eq (car rule) 'ggp-rules::<=))
             (apply #'invoke-rule (cdr rule))
             (invoke-fact rule)))
         gdl))
@@ -154,11 +155,14 @@
 
 (defun load-gdl-preamble ()
   (push-logic-frame-with
-    (rule (not ?x) (call ?x) ! fail)
-    (fact (not ?x))
+    (rule (ggp-rules::not ?x) (call ?x) ! fail)
+    (fact (ggp-rules::not ?x))
 
-    (rule (distinct ?x ?x) ! fail)
-    (fact (distinct ?x ?y))))
+    (rule (ggp-rules::or ?x ?y) (call ?x))
+    (rule (ggp-rules::or ?x ?y) (call ?y))
+
+    (rule (ggp-rules::distinct ?x ?x) ! fail)
+    (fact (ggp-rules::distinct ?x ?y))))
 
 (defun initialize-database (filename)
   (setf bones.wam::*database* (make-database))
@@ -210,11 +214,11 @@
 (defun initial-state ()
   (normalize-state
     (query-map (lambda (r) (getf r '?what))
-               (init ?what))))
+               (ggp-rules::init ?what))))
 
 
 (defun terminalp ()
-  (prove terminal))
+  (prove ggp-rules::terminal))
 
 (defun move= (move1 move2)
   (and (eq (car move1) (car move2))
@@ -227,7 +231,7 @@
   (invoke-query-map (lambda (move)
                       (cons (getf move '?role)
                             (getf move '?action)))
-                    `(legal ,role ?action)))
+                    `(ggp-rules::legal ,role ?action)))
 
 (defun legal-moves ()
   (let* ((individual-moves
@@ -235,7 +239,7 @@
              (query-map (lambda (move)
                           (cons (getf move '?role)
                                 (getf move '?action)))
-                        (legal ?role ?action))
+                        (ggp-rules::legal ?role ?action))
              :test #'move=))
          (player-moves
            (equivalence-classes #'move-role= individual-moves))
@@ -245,30 +249,30 @@
 
 (defun roles ()
   (query-map (lambda (r) (getf r '?role))
-             (role ?role)))
+             (ggp-rules::role ?role)))
 
 (defun goal-value (role)
-  (getf (invoke-query `(goal ,role ?goal))
+  (getf (invoke-query `(ggp-rules::goal ,role ?goal))
         '?goal))
 
 (defun goal-values ()
-  (invoke-query-all `(goal ?role ?goal)))
+  (invoke-query-all `(ggp-rules::goal ?role ?goal)))
 
 (defun next-state ()
   (normalize-state
     (query-map (lambda (r) (unique (getf r '?what)))
-               (next ?what))))
+               (ggp-rules::next ?what))))
 
 
 (defun apply-state (state)
   (push-logic-frame-with
     (loop :for fact :in state
-          :do (invoke-fact `(true ,fact)))))
+          :do (invoke-fact `(ggp-rules::true ,fact)))))
 
 (defun apply-moves (moves)
   (push-logic-frame-with
     (loop :for (role . action) :in moves
-          :do (invoke-fact `(does ,role ,action)))))
+          :do (invoke-fact `(ggp-rules::does ,role ,action)))))
 
 
 (defun clear-state ()
@@ -382,12 +386,19 @@
         ; (*cache* (make-trie))
         (*cache-hits* 0)
         (*cache-misses* 0))
-    (with-fresh-cons-pool
-      (prog1
-          (iterative-deepening-search limit)
-        ; (print *cache*)
-        ))))
+    (let ((result (with-fresh-cons-pool
+                    (iterative-deepening-search limit))))
+      (if (null result)
+        (format t "~%No solution found.~%")
+        (let ((*package* (find-package :ggp-rules)))
+          (format t "~%Final state:")
+          (pprint (first result))
+          (format t "~2%Path:")
+          (map nil #'pprint (second result)))))))
 
+
+;;;; Wat
+; (initialize-database "gdl/tictactoe.gdl")
 
 ;;;; Profiling
 #+sbcl
@@ -417,8 +428,9 @@
 
 ;;;; Scratch
 ; (profile "gdl/hanoi.gdl" 33)
-(profile "gdl/aipsrovers01.gdl" 11)
+; (profile "gdl/aipsrovers01.gdl" 11)
 ; (sb-sprof:report :type :flat :min-percent 0.5)
 ; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
 ; (time (run-game "gdl/hanoi.gdl" 33))
 ; (time (run-game "gdl/aipsrovers01.gdl" 11))
+; (time (run-game "gdl/8puzzle.gdl" 21))

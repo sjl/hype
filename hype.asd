@@ -23,4 +23,6 @@
     :serial t
     :components ((:file "utils")
                  (:file "main")
-                 ))))
+                 (:module "players"
+                  :serial t
+                  :components ((:file "random")))))))
