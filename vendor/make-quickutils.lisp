@@ -12,6 +12,7 @@
                :map-product
                :map-tree
                :equivalence-classes
+               :ensure-gethash
                ; :n-grams
                ; :switch
                ; :while

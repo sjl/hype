@@ -7,10 +7,10 @@
   :license "MIT/X11"
   :version "0.0.1"
 
-  :depends-on (#:defstar
-               #:iterate
+  :depends-on (#:iterate
                #:cl-arrows
                #:cl-ggp
+               #:losh
                #:temperance
                #+sbcl #:sb-sprof)
 
@@ -21,8 +21,7 @@
    (:file "package")
    (:module "src"
     :serial t
-    :components ((:file "utils")
-                 (:file "main")
+    :components ((:file "main")
                  (:module "players"
                   :serial t
                   :components ((:file "random")))))))

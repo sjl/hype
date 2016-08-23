@@ -2,7 +2,7 @@
 ;;;; See http://quickutil.org for details.
 
 ;;;; To regenerate:
-;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:WITH-GENSYMS :ONCE-ONLY :COMPOSE :CURRY :RCURRY :DEFINE-CONSTANT :MAP-PRODUCT :MAP-TREE :EQUIVALENCE-CLASSES) :ensure-package T :package "HYPE.QUICKUTILS")
+;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:WITH-GENSYMS :ONCE-ONLY :COMPOSE :CURRY :RCURRY :DEFINE-CONSTANT :MAP-PRODUCT :MAP-TREE :EQUIVALENCE-CLASSES :ENSURE-GETHASH) :ensure-package T :package "HYPE.QUICKUTILS")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package "HYPE.QUICKUTILS")
@@ -18,7 +18,7 @@
                                          :ENSURE-FUNCTION :COMPOSE :CURRY
                                          :RCURRY :DEFINE-CONSTANT :MAPPEND
                                          :MAP-PRODUCT :MAP-TREE
-                                         :EQUIVALENCE-CLASSES))))
+                                         :EQUIVALENCE-CLASSES :ENSURE-GETHASH))))
 
   (deftype string-designator ()
     "A string designator type. A string designator is either a string, a symbol,
@@ -288,8 +288,19 @@ defined by the equivalence relation `equiv`."
         ;; Return the classes.
         classes)))
   
+
+  (defmacro ensure-gethash (key hash-table &optional default)
+    "Like `gethash`, but if `key` is not found in the `hash-table` saves the `default`
+under key before returning it. Secondary return value is true if key was
+already in the table."
+    `(multiple-value-bind (value ok) (gethash ,key ,hash-table)
+       (if ok
+           (values value ok)
+           (values (setf (gethash ,key ,hash-table) ,default) nil))))
+  
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (export '(with-gensyms with-unique-names once-only compose curry rcurry
-            define-constant map-product map-tree equivalence-classes)))
+            define-constant map-product map-tree equivalence-classes
+            ensure-gethash)))
 
 ;;;; END OF quickutils.lisp ;;;;

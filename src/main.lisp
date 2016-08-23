@@ -24,20 +24,6 @@
          (*atom-table* (make-hash-table :test 'equal)))
     ,@body))
 
-(defmacro gethash-defaulted (key hash-table &body body)
-  "Get `key` from `hash-table`.
-
-  If `key` is not present, `body` will be evaluated, inserted into the table at
-  `key`, and returned.
-
-  "
-  (once-only (key hash-table)
-    (with-gensyms (result found)
-      `(multiple-value-bind (,result ,found) (gethash ,key ,hash-table)
-         (if ,found
-           ,result
-           (setf (gethash ,key ,hash-table)
-                 (progn ,@body)))))))
 
 (defmacro short-circuiting-get (v uv table init)
   (once-only (v table)
@@ -47,7 +33,7 @@
           (progn (setf ,uv ,v)
                  ,result)
           (progn (setf ,uv (unique ,v))
-                 (gethash-defaulted ,uv ,table ,init)))))))
+                 (ensure-gethash ,uv ,table ,init)))))))
 
 
 (defun unique-cons (a b &aux ua ub)
@@ -59,7 +45,7 @@
   (etypecase form
     (symbol form)
     (number form)
-    (atom (gethash-defaulted form *atom-table* form))
+    (atom (ensure-gethash form *atom-table* form))
     (cons (unique-cons (car form) (cdr form)))))
 
 (defun ulist (&rest args)
@@ -83,7 +69,7 @@
   (value nil :type t))
 
 
-(defun* follow-arc ((trie trie) arc-key extend?)
+(defun follow-arc (trie arc-key extend?)
   ;; returns (node did-extend)
   (let ((arc (assoc arc-key (trie-arcs trie))))
     (cond
@@ -94,7 +80,7 @@
                  (values new-trie t)))
       (t (values nil nil)))))
 
-(defun* find-leaf (trie key &optional extend?)
+(defun find-leaf (trie key &optional extend?)
   ;; returns (node did-extend)
   (cond
     ((null trie) (values nil nil))
@@ -105,17 +91,17 @@
          (find-leaf (cdr key) extend?)))))
 
 
-(defun* get-trie (key (trie trie) &optional default)
+(defun get-trie (key trie &optional default)
   (let* ((leaf (find-leaf trie key))
          (result (when leaf (trie-value leaf))))
     (if (or (null leaf) (eq result +trie-deleted+))
       (values default nil)
       (values result t))))
 
-(defun* (setf get-trie) (new-value key trie)
+(defun (setf get-trie) (new-value key trie)
   (setf (trie-value (find-leaf trie key t)) new-value))
 
-(defun* rem-trie (key trie)
+(defun rem-trie (key trie)
   (setf (get-trie key trie) +trie-deleted+))
 
 
@@ -431,6 +417,6 @@
 ; (profile "gdl/aipsrovers01.gdl" 11)
 ; (sb-sprof:report :type :flat :min-percent 0.5)
 ; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
-(time (run-game "gdl/hanoi.gdl" 33))
+; (time (run-game "gdl/hanoi.gdl" 33))
 ; (time (run-game "gdl/aipsrovers01.gdl" 11))
 ; (time (run-game "gdl/8puzzle.gdl" 21))
