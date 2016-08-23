@@ -48,7 +48,7 @@
     #:defstar
     #:iterate
     #:cl-arrows
-    #:bones
+    #:temperance
     #:hype.quickutils
     #:hype.utils)
   (:export

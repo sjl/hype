@@ -11,13 +11,13 @@
                #:iterate
                #:cl-arrows
                #:cl-ggp
-               #:bones
-               #+sbcl #:sb-sprof
-               )
+               #:temperance
+               #+sbcl #:sb-sprof)
 
   :serial t
   :components
-  ((:file "quickutils") ; quickutils package ordering crap
+  ((:module "vendor"
+    :components ((:file "quickutils")))
    (:file "package")
    (:module "src"
     :serial t

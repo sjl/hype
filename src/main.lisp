@@ -4,12 +4,12 @@
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
 
 
-(asdf:load-system 'bones :force t)
+(asdf:load-system 'temperance :force t)
 
 (let ((*standard-output* (make-broadcast-stream))
       (*error-output* (make-broadcast-stream))
       )
-  (asdf:load-system 'bones :force t))
+  (asdf:load-system 'temperance :force t))
 
 
 ;;;; Unique Consing
@@ -145,27 +145,27 @@
   (mapc (lambda (rule)
           (if (and (consp rule)
                    (eq (car rule) 'ggp-rules::<=))
-            (apply #'invoke-rule (cdr rule))
-            (invoke-fact rule)))
+            (apply #'invoke-rule t (cdr rule))
+            (invoke-fact t rule)))
         gdl))
 
 (defun load-gdl (filename)
-  (push-logic-frame-with
+  (push-logic-frame-with t
     (load-rules (read-gdl filename))))
 
 (defun load-gdl-preamble ()
-  (push-logic-frame-with
-    (rule (ggp-rules::not ?x) (call ?x) ! fail)
-    (fact (ggp-rules::not ?x))
+  (push-logic-frame-with t
+    (rule t (ggp-rules::not ?x) (call ?x) ! fail)
+    (fact t (ggp-rules::not ?x))
 
-    (rule (ggp-rules::or ?x ?y) (call ?x))
-    (rule (ggp-rules::or ?x ?y) (call ?y))
+    (rule t (ggp-rules::or ?x ?y) (call ?x))
+    (rule t (ggp-rules::or ?x ?y) (call ?y))
 
-    (rule (ggp-rules::distinct ?x ?x) ! fail)
-    (fact (ggp-rules::distinct ?x ?y))))
+    (rule t (ggp-rules::distinct ?x ?x) ! fail)
+    (fact t (ggp-rules::distinct ?x ?y))))
 
 (defun initialize-database (filename)
-  (setf bones.wam::*database* (make-database))
+  (reset-standard-database)
   (load-gdl-preamble)
   (load-gdl filename)
   (values))
@@ -213,12 +213,12 @@
 
 (defun initial-state ()
   (normalize-state
-    (query-map (lambda (r) (getf r '?what))
+    (query-map t (lambda (r) (getf r '?what))
                (ggp-rules::init ?what))))
 
 
 (defun terminalp ()
-  (prove ggp-rules::terminal))
+  (prove t ggp-rules::terminal))
 
 (defun move= (move1 move2)
   (and (eq (car move1) (car move2))
@@ -228,17 +228,17 @@
   (eq (car move1) (car move2)))
 
 (defun legal-moves-for (role)
-  (invoke-query-map (lambda (move)
-                      (cons (getf move '?role)
-                            (getf move '?action)))
+  (invoke-query-map t (lambda (move)
+                        (cons (getf move '?role)
+                              (getf move '?action)))
                     `(ggp-rules::legal ,role ?action)))
 
 (defun legal-moves ()
   (let* ((individual-moves
            (remove-duplicates
-             (query-map (lambda (move)
-                          (cons (getf move '?role)
-                                (getf move '?action)))
+             (query-map t (lambda (move)
+                            (cons (getf move '?role)
+                                  (getf move '?action)))
                         (ggp-rules::legal ?role ?action))
              :test #'move=))
          (player-moves
@@ -248,38 +248,38 @@
     joint-moves))
 
 (defun roles ()
-  (query-map (lambda (r) (getf r '?role))
+  (query-map t (lambda (r) (getf r '?role))
              (ggp-rules::role ?role)))
 
 (defun goal-value (role)
-  (getf (invoke-query `(ggp-rules::goal ,role ?goal))
+  (getf (invoke-query t `(ggp-rules::goal ,role ?goal))
         '?goal))
 
 (defun goal-values ()
-  (invoke-query-all `(ggp-rules::goal ?role ?goal)))
+  (invoke-query-all t `(ggp-rules::goal ?role ?goal)))
 
 (defun next-state ()
   (normalize-state
-    (query-map (lambda (r) (unique (getf r '?what)))
+    (query-map t (lambda (r) (unique (getf r '?what)))
                (ggp-rules::next ?what))))
 
 
 (defun apply-state (state)
-  (push-logic-frame-with
+  (push-logic-frame-with t
     (loop :for fact :in state
-          :do (invoke-fact `(ggp-rules::true ,fact)))))
+          :do (invoke-fact t `(ggp-rules::true ,fact)))))
 
 (defun apply-moves (moves)
-  (push-logic-frame-with
+  (push-logic-frame-with t
     (loop :for (role . action) :in moves
-          :do (invoke-fact `(ggp-rules::does ,role ,action)))))
+          :do (invoke-fact t `(ggp-rules::does ,role ,action)))))
 
 
 (defun clear-state ()
-  (pop-logic-frame))
+  (pop-logic-frame t))
 
 (defun clear-moves ()
-  (pop-logic-frame))
+  (pop-logic-frame t))
 
 
 ;;;; Cache
@@ -407,8 +407,8 @@
   (sb-ext:gc :full t)
   (require :sb-sprof)
   (sb-sprof::profile-call-counts "HYPE")
-  (sb-sprof::profile-call-counts "BONES.WAM")
-  (sb-sprof::profile-call-counts "BONES.CIRCLE")
+  (sb-sprof::profile-call-counts "TEMPERANCE.WAM")
+  (sb-sprof::profile-call-counts "TEMPERANCE.CIRCLE")
   (sb-sprof::with-profiling (:max-samples 50000
                              :reset t
                              ; :mode :alloc
@@ -431,6 +431,6 @@
 ; (profile "gdl/aipsrovers01.gdl" 11)
 ; (sb-sprof:report :type :flat :min-percent 0.5)
 ; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
-; (time (run-game "gdl/hanoi.gdl" 33))
+(time (run-game "gdl/hanoi.gdl" 33))
 ; (time (run-game "gdl/aipsrovers01.gdl" 11))
 ; (time (run-game "gdl/8puzzle.gdl" 21))
