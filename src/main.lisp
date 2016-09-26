@@ -1,10 +1,13 @@
 (in-package #:hype)
 
+
+;;;; Loading ------------------------------------------------------------------
 (declaim (optimize (speed 3) (debug 0) (safety 0)))
+; (declaim (optimize (speed 3) (debug 1) (safety 1)))
 ; (declaim (optimize (speed 0) (debug 3) (safety 3)))
 
 
-(asdf:load-system 'temperance :force t)
+; (asdf:load-system 'temperance :force t)
 
 (let ((*standard-output* (make-broadcast-stream))
       (*error-output* (make-broadcast-stream))
@@ -12,7 +15,7 @@
   (asdf:load-system 'temperance :force t))
 
 
-;;;; Unique Consing
+;;;; Unique Consing -----------------------------------------------------------
 ;;; Originally from PAIP, but updated with bugfix and macros.
 
 (defparameter *cons-table* (make-hash-table :test 'eql))
@@ -57,7 +60,7 @@
     (unique-cons (car a) (uappend (cdr a) b))))
 
 
-;;;; State Trie
+;;;; State Trie ---------------------------------------------------------------
 ;;; Based on the PAIP tries.
 
 (defconstant +trie-deleted+ 'trie-deleted)
@@ -117,7 +120,7 @@
       (prin1 (trie-to-cons trie) stream))))
 
 
-;;;; GDL
+;;;; GDL ----------------------------------------------------------------------
 (defun read-gdl (filename)
   (let ((*package* (find-package :ggp-rules)))
     (with-open-file (stream filename)
@@ -157,7 +160,7 @@
   (values))
 
 
-;;;; GGP
+;;;; GGP ----------------------------------------------------------------------
 (defun dedupe-state (state)
   (iterate (for fact :in state)
            (for prev :previous fact)
@@ -242,7 +245,7 @@
         '?goal))
 
 (defun goal-values ()
-  (invoke-query-all t `(ggp-rules::goal ?role ?goal)))
+  (query-all t (ggp-rules::goal ?role ?goal)))
 
 (defun next-state ()
   (normalize-state
@@ -268,7 +271,7 @@
   (pop-logic-frame t))
 
 
-;;;; Cache
+;;;; Cache --------------------------------------------------------------------
 (defvar *cache* nil)
 (defvar *cache-hits* nil)
 (defvar *cache-misses* nil)
@@ -299,7 +302,7 @@
             (setf (,getter ,state *cache*) (progn ,@body))))))))
 
 
-;;;; Search
+;;;; Search -------------------------------------------------------------------
 (defvar *count* 0)
 (defvar *role* nil)
 
@@ -383,17 +386,14 @@
           (map nil #'pprint (second result)))))))
 
 
-;;;; Wat
-; (initialize-database "gdl/tictactoe.gdl")
-
-;;;; Profiling
+;;;; Profiling ----------------------------------------------------------------
 #+sbcl
 (defun profile (game limit)
   ; (declare (optimize (speed 1) (debug 1) (safety 1)))
   (sb-ext:gc :full t)
   (require :sb-sprof)
   (sb-sprof::profile-call-counts "HYPE")
-  (sb-sprof::profile-call-counts "TEMPERANCE.WAM")
+  (sb-sprof::profile-call-counts "TEMPERANCE")
   (sb-sprof::profile-call-counts "TEMPERANCE.CIRCLE")
   (sb-sprof::with-profiling (:max-samples 50000
                              :reset t
@@ -412,11 +412,9 @@
                      :min-percent 0.5)))
 
 
-;;;; Scratch
+;;;; Scratch ------------------------------------------------------------------
 ; (profile "gdl/hanoi.gdl" 33)
 ; (profile "gdl/aipsrovers01.gdl" 11)
-; (sb-sprof:report :type :flat :min-percent 0.5)
-; (sb-sprof:report :type :flat :sort-by :cumulative-samples :sort-order :ascending)
 ; (time (run-game "gdl/hanoi.gdl" 33))
 ; (time (run-game "gdl/aipsrovers01.gdl" 11))
 ; (time (run-game "gdl/8puzzle.gdl" 21))
